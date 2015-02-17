@@ -1,0 +1,7 @@
+Django==1.7.4
+argparse==1.2.1
+djangorestframework==3.0.5
+pyparsing==2.0.3
+svglib==0.6.3
+svgwrite==1.1.6
+wsgiref==0.1.2
