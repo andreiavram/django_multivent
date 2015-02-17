@@ -1,7 +1,9 @@
 Django==1.7.4
+Pillow==2.7.0
 argparse==1.2.1
 djangorestframework==3.0.5
 pyparsing==2.0.3
-svglib==0.6.3
+reportlab==3.1.44
+-e git+https://github.com/andreiavram/svglib.git#egg=svglib
 svgwrite==1.1.6
 wsgiref==0.1.2
