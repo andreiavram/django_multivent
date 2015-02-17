@@ -4,7 +4,7 @@ setup(
     name='django_multivent',
     version='0.1',
     packages=['multivent', 'multivent.migrations'],
-    url='',
+    url='https://github.com/andreiavram/django_multivent',
     license='MIT',
     author='Andrei Avram',
     author_email='andrei.avram@gmail.com',
