@@ -1,6 +1,6 @@
 from django.conf.urls import patterns, include, url
 from django.contrib import admin
-from multivent.views import TestPlanner
+from example.views import TestPlanner
 
 urlpatterns = patterns('',
     # Examples:
