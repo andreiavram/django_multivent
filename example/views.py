@@ -2,7 +2,7 @@
 
 from django.http.response import HttpResponse
 from django.views.generic.base import View
-from multivent.planner_svg import output_svg_planner
+from multivent.planner_svg import PlannerRenderer
 
 __author__ = 'yeti'
 
@@ -18,7 +18,8 @@ class TestPlanner(View):
         if fmt not in TestPlanner.FORMATS:
             fmt = "svg"
 
-        output = output_svg_planner(file_format=fmt)
+        renderer = PlannerRenderer()
+        output = renderer.get_planner(file_format=fmt)
         response['Content-Disposition'] = 'attachment; filename="planner2015.%s"' % fmt
         response.write(output)
         return response

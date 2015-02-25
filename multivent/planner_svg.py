@@ -1,3 +1,5 @@
+from multivent.events import Event
+
 __author__ = 'yeti'
 
 import datetime
@@ -9,11 +11,6 @@ import cairocffi
 cairocffi.install_as_pycairo()
 
 import cairosvg
-from svglib.svglib import svg2rlg
-from reportlab.graphics import renderPDF
-
-
-
 
 
 class DrawingToMemory(svgwrite.Drawing):
@@ -34,36 +31,54 @@ class DrawingToMemory(svgwrite.Drawing):
         return file_object
 
 
-class Event(object):
-    def __init__(self, dates, rgb_color, name):
-        self.start_date = dates[0]
-        self.end_date = dates[1]
-        self.dates = dates
-        self._rgb_color = rgb_color
-        self.background_color = svgwrite.rgb(*rgb_color)
-        self.name = name
-        self.slot = None
+class PlannerEventStyle(object):
+    def __init__(self, color=(0, 0, 0), background_color=(255, 255, 255), font_name="Ubuntu", text_size=5,
+                 stroke_width=0.5, stroke_color=(10, 10, 10), **kwargs):
+
+        self.color = svgwrite.rgb(*color)
+        self.background_color = svgwrite.rgb(*background_color)
+        self.stroke_color = svgwrite.rgb(*stroke_color)
+
+        self._rgb_color = color
+        self._rgb_background_color = background_color
+        self._rgb_stroke_color = stroke_color
+        self.font_name = font_name
+        self.text_size = text_size
+        self.stroke_width = stroke_width
+
 
     @property
-    def text_color(self):
-        r, g, b = self._rgb_color
+    def contrast_color(self):
+        r, g, b = self._rgb_background_color
         a = 1. - (0.299 * r + 0.587 * g + 0.114 * b) / 255.
         _d = 0 if a < 0.5 else 255
         return svgwrite.rgb(_d, _d, _d)
 
-    def get_rect_style(self):
-        return _make_style(*self._rgb_color)
+    @classmethod
+    def make_size(cls, val):
+        return PlannerRenderer.add_mm_to_sizes(val)
 
     def get_text_style(self):
-        return dict(font_family="Ubuntu",
-                    font_size="5mm",
-                    fill=self.text_color)
+        return dict(font_family=self.font_name, font_size=self.make_size(self.text_size), fill=self.color)
 
-MAX_EVENTS = 5
-EVENT_HEIGHT = 10   # mm
-FONT_NAME = "Ubuntu"
+    def get_rect_style(self):
+        return self._make_style(*self._rgb_color)
 
-A0_size = (1189, 841)
+    def _make_style(self, r, g, b):
+        return dict(stroke=svgwrite.rgb(10, 10, 16),
+                    stroke_width=self.make_size(self.stroke_width),
+                    fill=self.background_color)
+
+
+class PlannerEvent(Event):
+    def __init__(self, dates, name, **kwargs):
+        super(PlannerEvent, self).__init__(dates, name, **kwargs)
+        self.slot = None
+        self.style = kwargs.get("style", None)
+        self.event_type = kwargs.get("event_type")
+
+        if self.style is None:
+            self.style = PlannerEventStyle()
 
 
 class EventRenderer(object):
@@ -73,48 +88,69 @@ class EventRenderer(object):
 
 
 class PlannerRenderer(EventRenderer):
+    DEFAULT_SIZES = {
+        "A0": (1189, 841)
+    }
+
+    supported_event_types = ["normal", "background", "special_date", "weekend", "empty"]
+
+    def __init__(self, events=None, page_size="A0", max_events=5, font_name="Ubuntu", event_height=10,
+                 default_styles=None, month_name_font_size=8, day_name_font_size=8):
+        self.page_size = self.DEFAULT_SIZES.get(page_size, self.DEFAULT_SIZES["A0"])
+        self.max_day_events = max_events
+        self.font_name = font_name
+        self.event_height = event_height
+        self.events = events
+        self.month_name_font_size = month_name_font_size
+        self.day_name_font_size = day_name_font_size
+
+        if default_styles is None:
+            default_styles = {}
+
+        styles = self.get_default_styles()
+        for e in self.supported_event_types:
+            if e not in default_styles.keys():
+                default_styles[e] = styles.get(e)
+
+        self.default_styles = default_styles
+
+    @classmethod
+    def get_default_styles(cls):
+        styles = {
+            "normal": PlannerEventStyle(background_color=(255, 255, 255)),
+            "background": PlannerEventStyle(background_color=(208, 255, 156)),
+            "weekend": PlannerEventStyle(background_color=(244, 44, 440)),
+            "special_date": PlannerEventStyle(color=(255, 44, 44)),
+            "empty": PlannerEventStyle()
+        }
+        return styles
+
     @staticmethod
     def add_mm_to_sizes(size):
         if isinstance(size, basestring) or isinstance(size, int) or isinstance(size, float):
             return "%smm" % size
         return "%dmm" % size[0], "%dmm" % size[1]
 
-    @staticmethod
-    def _make_style(r, g, b):
-        return dict(stroke=svgwrite.rgb(10, 10, 16),
-                    stroke_width="0.5mm",
-                    fill=svgwrite.rgb(r, g, b))
-
-    def __init__(self, events=None, **kwargs):
-        self.events = events
-
     def get_planner(self, year=None, output_format="buffer", file_format="svg", filename=None):
         if year is None:
             year = datetime.date.today().year
 
-        dwg = DrawingToMemory(filename, size=self.add_mm_to_sizes(A0_size), profile="tiny")
+        dwg = DrawingToMemory(filename, size=self.add_mm_to_sizes(self.page_size), profile="tiny")
 
-        # TODO: center stuff
-        date_rect_pos = (10, 10)
+        #   should this be moved somewhere else?
         date_rect_size = (30, 64)
+        centering_offset_y = (self.page_size[1] - 12 * date_rect_size[1]) / 2
+        centering_offset_x = (self.page_size[0] - 37 * date_rect_size[0]) / 2
+        date_rect_pos = (centering_offset_x, centering_offset_y)
 
-        date_rect_style = self._make_style(200, 200, 200)
-        date_rect_style_weekend = self._make_style(244, 44, 440)
-        style_vacante = self._make_style(208, 255, 156)
-
-        special_dates = (((datetime.date(2015, 2, 2), datetime.date(2015, 2, 6)), style_vacante),
-                         ((datetime.date(2015, 6, 15), datetime.date(2015, 8, 31)), style_vacante))
-
-        events = [Event((datetime.date(2015, 8, 15), datetime.date(2015, 8, 24)), (255, 255, 89), "CCL2015"),
-                  Event((datetime.date(2015, 3, 15), datetime.date(2015, 5, 15)), (240, 37, 89), "TEST LONG EVENT"),
-                  Event((datetime.date(2015, 3, 18), datetime.date(2015, 4, 20)), (37, 89, 240), "TEST OVERRIDE"),
-                  Event((datetime.date(2015, 2, 18), datetime.date(2015, 3, 20)), (37, 89, 240), "TEST OVERRIDE 2 "),
-                  Event((datetime.date(2015, 3, 22), datetime.date(2015, 3, 25)), (255, 255, 89), "TEST OVERRIDE 3")]
-
-        events.sort(key=lambda x: x.start_date)
+        self.events.sort(key=lambda x: x.start_date)
+        style_weekday = self.default_styles.get("normal")
+        style_weekend = self.default_styles.get("weekend")
 
         month_names = ["Ian", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"]
 
+        background_events = [e for e in self.events if e.event_type == "background"]
+        background_events.sort(key=lambda x: (x.start_date, x.end_date))
         for month in range(1, 13):
             date_start = datetime.date(year, month, 1)
             month_offset = date_start.weekday()
@@ -126,38 +162,44 @@ class PlannerRenderer(EventRenderer):
                 date_end = datetime.date(year, month + 1, 1) - datetime.timedelta(days=1)
 
             date_range = [date_start + datetime.timedelta(days=i) for i in range(0, (date_end - date_start).days + 1)]
-            date_events = {date: [i for i in range(1, MAX_EVENTS + 1)] for date in date_range}
+            date_events = {date: [i for i in range(1, self.max_day_events + 1)] for date in date_range}
 
             month_text_position = (date_rect_pos[0] - date_rect_size[0] / 2, date_rect_pos[1] + 0.33 * date_rect_size[1])
             dwg.add(dwg.text("%s" % month_names[month - 1],
                              insert=self.add_mm_to_sizes(month_text_position),
-                             font_family=FONT_NAME,
-                             font_size=self.add_mm_to_sizes(8),
+                             font_family=self.font_name,
+                             font_size=self.add_mm_to_sizes(self.month_name_font_size),
                              text_anchor="middle"))
 
             for day in date_range:
-                style = date_rect_style
-                for special_style in special_dates:
-                    if self.date_in_range(day, special_style[0]):
-                        style = special_style[1]
-                style = style if day.weekday() < 5 else date_rect_style_weekend
+                style = style_weekday
+                for e in background_events:
+                    if self.date_in_range(day, (e.start_date, e.end_date)):
+                        style = e.style if e.style is not None else self.default_styles("background")
+                    if e.start_date > day:
+                        break
+
+                style = style if day.weekday() < 5 else style_weekend
 
                 grp = dwg.g()
-                grp.add(dwg.rect(insert=self.add_mm_to_sizes(date_rect_pos), size=self.add_mm_to_sizes(date_rect_size), **style))
+                grp.add(dwg.rect(insert=self.add_mm_to_sizes(date_rect_pos),
+                                 size=self.add_mm_to_sizes(date_rect_size),
+                                 **style.get_rect_style()))
 
                 day_text_position = (date_rect_pos[0] + date_rect_size[0] * 0.75,
                                      date_rect_pos[1] + 0.90 * date_rect_size[1])
 
                 grp.add(dwg.text("%s" % day.day,
                                  insert=self.add_mm_to_sizes(day_text_position),
-                                 font_family=FONT_NAME,
-                                 font_size=self.add_mm_to_sizes(8),
+                                 font_family=self.font_name,
+                                 font_size=self.add_mm_to_sizes(self.day_name_font_size),
                                  text_anchor="middle"))
 
                 date_rect_pos = (date_rect_pos[0] + date_rect_size[0], date_rect_pos[1])
                 dwg.add(grp)
 
-            for event in events:
+            foreground_events = [e for e in self.events if e.event_type == "normal"]
+            for event in foreground_events:
                 if self.date_in_range(date_range[0], event.dates) \
                         or self.date_in_range(date_range[-1], event.dates) \
                         or date_range[0] <= event.start_date <= date_range[-1] \
@@ -168,7 +210,7 @@ class PlannerRenderer(EventRenderer):
 
                     event_days = [d for d in date_range if event_start_date <= d <= event_end_date]
 
-                    if any([len(date_events[date]) > MAX_EVENTS for date in event_days]):
+                    if any([len(date_events[date]) > self.max_day_events for date in event_days]):
                         raise Exception("Too many events for month %s" % month_names[month - 1])
 
                     for date in event_days:
@@ -187,19 +229,22 @@ class PlannerRenderer(EventRenderer):
                     for day in event_days:
                         date_events[day].remove(event.slot)
 
-                    event_x = (month_offset + event_start_date.day - 1) * date_rect_size[0] + 10
+                    event_x = (month_offset + event_start_date.day - 1) * date_rect_size[0] + centering_offset_x
                     event_width = ((event_end_date-event_start_date).days + 1) * date_rect_size[0]
                     grp = dwg.g()
 
-                    event_position = (event_x, date_rect_pos[1] + (event.slot - 1) * EVENT_HEIGHT)
+                    event_position = (event_x, date_rect_pos[1] + (event.slot - 1) * self.event_height)
                     grp.add(dwg.rect(insert=self.add_mm_to_sizes(event_position),
-                                     size=self.add_mm_to_sizes((event_width, EVENT_HEIGHT)), **event.get_rect_style()))
+                                     size=self.add_mm_to_sizes((event_width, self.event_height)),
+                                     **event.style.get_rect_style()))
 
-                    event_text_position = (event_x + 3, date_rect_pos[1] + (event.slot - 1) * EVENT_HEIGHT + 7)
-                    grp.add(dwg.text(event.name, insert=self.add_mm_to_sizes(event_text_position), **event.get_text_style()))
+                    event_text_position = (event_x + 3, date_rect_pos[1] + (event.slot - 1) * self.event_height + 7)
+                    grp.add(dwg.text(event.name,
+                                     insert=self.add_mm_to_sizes(event_text_position),
+                                     **event.style.get_text_style()))
                     dwg.add(grp)
 
-            date_rect_pos = (10, date_rect_pos[1] + date_rect_size[1])
+            date_rect_pos = (centering_offset_x, date_rect_pos[1] + date_rect_size[1])
 
         # can use save_to_buffer() to get buffer.value()
         # can use save_to_fileobject(response) to write directly to response
@@ -218,13 +263,53 @@ class PlannerRenderer(EventRenderer):
         if output_format == "file":
             if file_format == "svg":
                 dwg.save()
-            if file_format == "pdf":
-                pdf = svg2rlg(filename)
-                renderPDF.drawToFile(pdf, filename + ".pdf")
+            elif file_format == "pdf":
+                svg = dwg.draw_to_buffer()
+                cairosvg.svg2pdf(svg.getvalue(), write_to=filename)
+                svg.close()
+
         return
 
 if __name__ == "__main__":
     FILE_NAME = "test.svg"
     PDF_FILE_NAME = FILE_NAME + ".pdf"
-    planner = PlannerRenderer()
-    planner.get_planner(output_format="file", filename=FILE_NAME)
+
+    normal_date = PlannerEventStyle()
+    vacante = PlannerEventStyle(background_color=(208, 255, 156))
+    zile_libere = PlannerEventStyle(background_color=(255, 0, 0))
+    weekend = PlannerEventStyle(background_color=(244, 44, 440))
+
+
+    events = [PlannerEvent((datetime.date(2015, 8, 15), datetime.date(2015, 8, 24)),
+                           name="Test Event 1",
+                           style=PlannerEventStyle(background_color=(255, 255, 89)),
+                           event_type="normal"),
+              PlannerEvent((datetime.date(2015, 3, 15), datetime.date(2015, 5, 15)),
+                           name="Test Event 2",
+                           style=PlannerEventStyle(background_color=(240, 37, 89)),
+                           event_type="normal"),
+              PlannerEvent((datetime.date(2015, 3, 18), datetime.date(2015, 4, 20)),
+                           name="Test Event 3",
+                           style=PlannerEventStyle(background_color=(37, 89, 240)),
+                           event_type="normal"),
+              PlannerEvent((datetime.date(2015, 2, 18), datetime.date(2015, 3, 20)),
+                           name="Test Event 4",
+                           style=PlannerEventStyle(background_color=(37, 89, 240)),
+                           event_type="normal"),
+              PlannerEvent((datetime.date(2015, 3, 22), datetime.date(2015, 3, 25)),
+                           name="Test Event 5",
+                           style=PlannerEventStyle(background_color=(255, 255, 89)),
+                           event_type="normal"),
+              PlannerEvent((datetime.date(2015, 2, 2), datetime.date(2015, 2, 6)),
+                           name="Vacanta #1",
+                           event_type="background"),
+              PlannerEvent((datetime.date(2015, 6, 15), datetime.date(2015, 8, 31)),
+                           name="Vacanta #2",
+                           event_type="background"),
+              PlannerEvent(datetime.date(2015, 6, 1),
+                           name="Rusalii",
+                           event_type="background",
+                           style=zile_libere)]
+
+    planner = PlannerRenderer(events=events)
+    planner.get_planner(output_format="file", filename=PDF_FILE_NAME, file_format="pdf")
