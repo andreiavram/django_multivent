@@ -33,7 +33,7 @@ class DrawingToMemory(svgwrite.Drawing):
 
 class PlannerEventStyle(object):
     def __init__(self, color=(0, 0, 0), background_color=(255, 255, 255), font_name="Ubuntu", text_size=5,
-                 stroke_width=0.5, stroke_color=(10, 10, 10), **kwargs):
+                 stroke_width=0.5, stroke_color=(10, 10, 10)):
 
         self.color = svgwrite.rgb(*color)
         self.background_color = svgwrite.rgb(*background_color)
@@ -45,7 +45,6 @@ class PlannerEventStyle(object):
         self.font_name = font_name
         self.text_size = text_size
         self.stroke_width = stroke_width
-
 
     @property
     def contrast_color(self):
@@ -62,12 +61,12 @@ class PlannerEventStyle(object):
         return dict(font_family=self.font_name, font_size=self.make_size(self.text_size), fill=self.color)
 
     def get_rect_style(self):
-        return self._make_style(*self._rgb_color)
+        return self._make_style(self.background_color)
 
-    def _make_style(self, r, g, b):
+    def _make_style(self, fill_color):
         return dict(stroke=svgwrite.rgb(10, 10, 16),
                     stroke_width=self.make_size(self.stroke_width),
-                    fill=self.background_color)
+                    fill=fill_color)
 
 
 class PlannerEvent(Event):
@@ -238,6 +237,7 @@ class PlannerRenderer(EventRenderer):
                                      size=self.add_mm_to_sizes((event_width, self.event_height)),
                                      **event.style.get_rect_style()))
 
+                    # todo: improve text position here
                     event_text_position = (event_x + 3, date_rect_pos[1] + (event.slot - 1) * self.event_height + 7)
                     grp.add(dwg.text(event.name,
                                      insert=self.add_mm_to_sizes(event_text_position),
