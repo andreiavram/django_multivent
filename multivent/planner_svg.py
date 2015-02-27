@@ -125,7 +125,10 @@ class PlannerRenderer(EventRenderer):
         return styles
 
     @staticmethod
-    def add_mm_to_sizes(size):
+    def add_mm_to_sizes(size, fallthrough=True):
+        if fallthrough:
+            return size
+
         if isinstance(size, basestring) or isinstance(size, int) or isinstance(size, float):
             return "%smm" % size
         return "%dmm" % size[0], "%dmm" % size[1]
@@ -134,7 +137,7 @@ class PlannerRenderer(EventRenderer):
         if year is None:
             year = datetime.date.today().year
 
-        dwg = DrawingToMemory(filename, size=self.add_mm_to_sizes(self.page_size), profile="tiny")
+        dwg = DrawingToMemory(filename, size=self.add_mm_to_sizes(self.page_size, False), viewBox=("0 0 %s %s" % (self.page_size[0], self.page_size[1])), profile="tiny")
 
         #   should this be moved somewhere else?
         date_rect_size = (30, 64)
@@ -163,12 +166,14 @@ class PlannerRenderer(EventRenderer):
             date_range = [date_start + datetime.timedelta(days=i) for i in range(0, (date_end - date_start).days + 1)]
             date_events = {date: [i for i in range(1, self.max_day_events + 1)] for date in date_range}
 
-            month_text_position = (date_rect_pos[0] - date_rect_size[0] / 2, date_rect_pos[1] + 0.33 * date_rect_size[1])
-            dwg.add(dwg.text("%s" % month_names[month - 1],
-                             insert=self.add_mm_to_sizes(month_text_position),
-                             font_family=self.font_name,
-                             font_size=self.add_mm_to_sizes(self.month_name_font_size),
-                             text_anchor="middle"))
+            month_text_position = (date_rect_pos[0] - date_rect_size[0] / 5, date_rect_pos[1] + .9 * date_rect_size[1])
+            month_text = dwg.text("%s %s" % (month_names[month - 1], year),
+                              insert=self.add_mm_to_sizes(month_text_position),
+                              font_family=self.font_name,
+                              font_size=self.add_mm_to_sizes(self.month_name_font_size),)
+            dwg.add(month_text)
+            print month_text_position
+            month_text.rotate(-90, center=month_text_position)
 
             for day in date_range:
                 style = style_weekday
@@ -238,7 +243,8 @@ class PlannerRenderer(EventRenderer):
                                      **event.style.get_rect_style()))
 
                     # todo: improve text position here
-                    event_text_position = (event_x + 3, date_rect_pos[1] + (event.slot - 1) * self.event_height + 7)
+                    event_text_position = (event_x + self.event_height / 3.,
+                                           date_rect_pos[1] + (event.slot - 1 + 0.7) * self.event_height)
                     grp.add(dwg.text(event.name,
                                      insert=self.add_mm_to_sizes(event_text_position),
                                      **event.style.get_text_style()))
@@ -278,7 +284,6 @@ if __name__ == "__main__":
     vacante = PlannerEventStyle(background_color=(208, 255, 156))
     zile_libere = PlannerEventStyle(background_color=(255, 0, 0))
     weekend = PlannerEventStyle(background_color=(244, 44, 440))
-
 
     events = [PlannerEvent((datetime.date(2015, 8, 15), datetime.date(2015, 8, 24)),
                            name="Test Event 1",
